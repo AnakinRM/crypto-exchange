@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -11,6 +12,7 @@ import (
 
 func main() {
 	e := echo.New()
+	e.HTTPErrorHandler = httpErrorHandler
 	ex := NewExchange()
 
 	e.GET("/book/:market", ex.handleGetBook)
@@ -19,6 +21,10 @@ func main() {
 
 	e.Start(":3000")
 
+}
+
+func httpErrorHandler(err error, c echo.Context) {
+	fmt.Println(err)
 }
 
 type OrderType string
@@ -121,37 +127,22 @@ func (ex *Exchange) cancelOrder(c echo.Context) error {
 
 	ob := ex.orderbooks[MarketETH]
 
-	orderCanceled := false
+	order, ok := ob.Orders[int64(id)]
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]any{"msg": "can't find order ID: " + idStr})
+	}
+	ob.CancelOrder(order)
 
 	//fired coding next!!!
-	for _, limit := range ob.Asks() {
-		for _, order := range limit.Orders {
-			if order.ID == int64(id) {
-				ob.CancelOrder(order)
-				orderCanceled = true
-			}
 
-			if orderCanceled {
-				return c.JSON(200, map[string]any{"msg": "order canceled"})
-			}
-		}
-	}
+	return c.JSON(http.StatusOK, map[string]any{"msg": "order deleted"})
 
-	for _, limit := range ob.Bids() {
-		for _, order := range limit.Orders {
-			if order.ID == int64(id) {
-				ob.CancelOrder(order)
-				orderCanceled = true
-			}
+}
 
-			if orderCanceled {
-				return c.JSON(200, map[string]any{"msg": "order canceled"})
-			}
-		}
-	}
-
-	return nil
-
+type MatchedOrders struct {
+	Price float64
+	Size  float64
+	ID    int64
 }
 
 func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
@@ -167,12 +158,30 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 
 	if placeOrderData.Type == LimitOrder {
 		ob.PlaceLimitOrder(placeOrderData.Price, order)
-		return c.JSON(200, map[string]any{"msg": "limit order placed"})
+		return c.JSON(http.StatusOK, map[string]any{"msg": "limit order placed"})
 	}
 
 	if placeOrderData.Type == MarketOrder {
 		matches := ob.PlaceMarketOrder(order)
-		return c.JSON(200, map[string]any{"matches": len(matches)})
+		matchOrders := make([]*MatchedOrders, len(matches))
+
+		isBid := false
+		if order.Bid {
+			isBid = true
+		}
+
+		for i := 0; i < len(matchOrders); i++ {
+			id := matches[i].Bid.ID
+			if isBid {
+				id = matches[i].Ask.ID
+			}
+			matchOrders[i] = &MatchedOrders{
+				Size:  matches[i].SizeFilled,
+				Price: matches[i].Price,
+				ID:    id,
+			}
+		}
+		return c.JSON(http.StatusOK, map[string]any{"matches": matchOrders})
 	}
 
 	return nil
