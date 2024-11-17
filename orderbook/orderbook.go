@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -42,7 +43,7 @@ func NewOrder(bid bool, size float64, userID int64) *Order {
 }
 
 func (o *Order) String() string {
-	return fmt.Sprintf("[size] %.2f", o.Size)
+	return fmt.Sprintf("[ID] %+v [UserID]  %+v [size] %.2f [Bid]  %+v[Timestamp] %+v", o.ID, o.UserID, o.Size, o.Bid, o.Timestamp)
 }
 
 func (o *Order) IsFilled() bool {
@@ -174,6 +175,7 @@ type Orderbook struct {
 	asks []*Limit
 	bids []*Limit
 
+	mu        sync.RWMutex
 	AskLimits map[float64]*Limit
 	BidLimits map[float64]*Limit
 	Orders    map[int64]*Order
@@ -229,6 +231,9 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 	// 1. check volume is 15k
 	var limit *Limit
+
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
 
 	if o.Bid {
 		limit = ob.BidLimits[price]
