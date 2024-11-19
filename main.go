@@ -17,19 +17,27 @@ const (
 )
 
 var (
-	tick   = 2 * time.Second
-	myAsks = make(map[float64]int64)
-	myBids = make(map[float64]int64)
+	tick = 2 * time.Second
 )
 
 func marketOrderPlacer(c *client.Client) {
 	ticker := time.NewTicker(5 * time.Second)
 	for {
 		//Sell
+		otherMarketSellOrder := &client.PlaceOrderParams{
+			UserID: 1,
+			Bid:    false,
+			Size:   5000,
+		}
+		orderResp, err := c.PlaceMarketOrder(otherMarketSellOrder)
+		if err != nil {
+			log.Println(orderResp)
+		}
+
 		marketSellOrder := &client.PlaceOrderParams{
 			UserID: 666,
 			Bid:    false,
-			Size:   1000,
+			Size:   3000,
 		}
 
 		sellOrderResp, err := c.PlaceMarketOrder(marketSellOrder)
@@ -44,7 +52,7 @@ func marketOrderPlacer(c *client.Client) {
 			Size:   1000,
 		}
 
-		orderResp, err := c.PlaceMarketOrder(marketBuyOrder)
+		orderResp, err = c.PlaceMarketOrder(marketBuyOrder)
 		if err != nil {
 			log.Println(orderResp)
 		}
@@ -53,17 +61,19 @@ func marketOrderPlacer(c *client.Client) {
 	}
 }
 
+const userID = 2
+
 func makeMarketSimple(c *client.Client) {
 	ticker := time.NewTicker(tick)
 
 	for {
 
-		orders, err := c.GetOrders(1)
+		orders, err := c.GetOrders(userID)
 		if err != nil {
 			log.Println(err)
 		}
 		fmt.Println("=-----------------------------------")
-		fmt.Printf("%+v\n", orders)
+		fmt.Printf("Get orders from the client %+v\n", orders)
 		fmt.Println("=-----------------------------------")
 
 		bestAsk, err := c.GetBestAskPrice()
@@ -79,7 +89,7 @@ func makeMarketSimple(c *client.Client) {
 		spread := math.Abs(bestBid - bestAsk)
 		fmt.Println("exchange spread", spread)
 
-		if len(myBids) < 3 {
+		if len(orders.Bids) < 3 {
 			//place the bid
 			bidLimit := &client.PlaceOrderParams{
 				UserID: 2,
@@ -93,11 +103,9 @@ func makeMarketSimple(c *client.Client) {
 				log.Println(bidOrderResp)
 			}
 
-			myBids[bidLimit.Price] = bidOrderResp.OrderID
-
 		}
 
-		if len(myAsks) < 3 {
+		if len(orders.Asks) < 3 {
 			//place the ask
 			askLimit := &client.PlaceOrderParams{
 				UserID: 2,
@@ -111,10 +119,9 @@ func makeMarketSimple(c *client.Client) {
 				log.Println(askOrderResp)
 			}
 
-			myAsks[askLimit.Price] = askOrderResp.OrderID
 		}
 
-		fmt.Println("best ask price", bestAsk)
+		fmt.Println("best ask price", bestAsk, "len ")
 		fmt.Println("best bid price", bestBid)
 
 		//its a channel which will better than sleep
@@ -160,73 +167,8 @@ func main() {
 
 	go makeMarketSimple(c)
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 	marketOrderPlacer(c)
-
-	// limitOrderParams := &client.PlaceOrderParams{
-	// 	UserID: 1,
-	// 	Bid:    false,
-	// 	Price:  10_000,
-	// 	Size:   5_000_000,
-	// }
-
-	// _, err := c.PlaceLimitOrder(limitOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// otherLimitOrderParams := &client.PlaceOrderParams{
-	// 	UserID: 666,
-	// 	Bid:    false,
-	// 	Price:  9_000,
-	// 	Size:   500_000,
-	// }
-
-	// _, err = c.PlaceLimitOrder(otherLimitOrderParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// buyLimitOrder := &client.PlaceOrderParams{
-	// 	UserID: 666,
-	// 	Bid:    true,
-	// 	Price:  11_000,
-	// 	Size:   500_000,
-	// }
-
-	// _, err = c.PlaceLimitOrder(buyLimitOrder)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// //fmt.Println("placed limit order from the client =>", resp.OrderID)
-
-	// limitMarketParams := &client.PlaceOrderParams{
-	// 	UserID: 2,
-	// 	Bid:    true,
-	// 	Size:   1_000_000,
-	// }
-
-	// _, err = c.PlaceMarketOrder(limitMarketParams)
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// bestBidPrice, err := c.GetBestBidPrice()
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// bestAskPrice, err := c.GetBestAskPrice()
-	// if err != nil {
-	// 	panic(err)
-	// }
-
-	// fmt.Println(bestBidPrice, bestAskPrice)
-
-	// //fmt.Println("placed market order from the client =>", resp.OrderID)
-
-	// time.Sleep(1 * time.Second)
 
 	select {}
 }

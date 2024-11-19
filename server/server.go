@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/anakinrm/crypto-exchange/orderbook"
 	"github.com/ethereum/go-ethereum/common"
@@ -139,6 +140,7 @@ func httpErrorHandler(err error, c echo.Context) {
 
 type Exchange struct {
 	Client *ethclient.Client
+	mu     sync.RWMutex
 	Users  map[int64]*User
 	//orders maps a user to his order
 	Orders     map[int64][]*orderbook.Order
@@ -162,6 +164,11 @@ func NewExchange(privateKey string, client *ethclient.Client) (*Exchange, error)
 	}, nil
 }
 
+type GetOrdersResponse struct {
+	Asks []Order
+	Bids []Order
+}
+
 func (ex *Exchange) handleGetOrders(c echo.Context) error {
 	userIDstr := c.Param("userID")
 	userID, err := strconv.Atoi(userIDstr)
@@ -169,29 +176,41 @@ func (ex *Exchange) handleGetOrders(c echo.Context) error {
 		return err
 	}
 
-	orderbookOrders, ok := ex.Orders[int64(userID)]
-
-	if !ok {
-		return c.JSON(http.StatusNotFound, fmt.Sprintf("userID [%d] order can not be found", userID))
+	ex.mu.RLock()
+	orderbookOrders := ex.Orders[int64(userID)]
+	ordersResp := &GetOrdersResponse{
+		Asks: []Order{},
+		Bids: []Order{},
 	}
 
-	orders := make([]Order, len(orderbookOrders))
+	// if !ok {
+	// 	return c.JSON(http.StatusNotFound, fmt.Sprintf("userID [%d] order can not be found", userID))
+	// }
 
 	for i := 0; i < len(orderbookOrders); i++ {
+		// It could be that the order is getting filled even though its included in this
+		//respnse. we must double check if the limit is not nil
+		if orderbookOrders[i].Limit == nil {
+			continue
+		}
 		order := Order{
-			UserID: orderbookOrders[i].UserID,
-			ID:     orderbookOrders[i].ID,
-			//Price:     orderbookOrders[i].Limit.Price,
+			UserID:    orderbookOrders[i].UserID,
+			ID:        orderbookOrders[i].ID,
+			Price:     orderbookOrders[i].Limit.Price,
 			Size:      orderbookOrders[i].Size,
 			Bid:       orderbookOrders[i].Bid,
 			Timestamp: orderbookOrders[i].Timestamp,
 		}
-		orders[i] = order
+
+		if order.Bid {
+			ordersResp.Bids = append(ordersResp.Bids, order)
+		} else {
+			ordersResp.Asks = append(ordersResp.Asks, order)
+		}
 	}
+	ex.mu.RUnlock()
 
-	fmt.Printf("%+v", orders)
-
-	return c.JSON(http.StatusOK, orders)
+	return c.JSON(http.StatusOK, ordersResp)
 }
 
 func (ex *Exchange) handleGetBook(c echo.Context) error {
@@ -327,6 +346,22 @@ func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order
 
 	log.Printf("filled market order => %d | size: [%.2f] | Avg Price: [%.2f]", order.ID, totalSizeFilled, avgPrice)
 
+	// #TODO: this approch is a shit! try modify a decent one
+	newOrderMap := make(map[int64][]*orderbook.Order)
+	ex.mu.Lock()
+	for userID, orderbookOrders := range ex.Orders {
+		// If the order is not filled we place it in the map copy
+		// this means that size of the order = 0
+		for i := 0; i < len(orderbookOrders); i++ {
+			if !orderbookOrders[i].IsFilled() {
+				newOrderMap[userID] = append(newOrderMap[userID], orderbookOrders[i])
+			}
+		}
+	}
+
+	ex.Orders = newOrderMap
+	ex.mu.Unlock()
+
 	return matches, matchOrders
 }
 
@@ -334,7 +369,10 @@ func (ex *Exchange) handlePlaceLimitOrder(market Market, price float64, order *o
 	ob := ex.orderbooks[market]
 	ob.PlaceLimitOrder(price, order)
 
+	// keep track of the user orders
+	ex.mu.Lock()
 	ex.Orders[order.UserID] = append(ex.Orders[order.UserID], order)
+	ex.mu.Unlock()
 
 	log.Printf("new LIMIT order => type:[%t] | price [%2.f] | size [%.2f]", order.Bid, order.Limit.Price, order.Size)
 
@@ -368,39 +406,10 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 	if placeOrderData.Type == MarketOrder {
 		matches, _ := ex.handlePlaceMarketOrder(market, order)
 
-		if err := ex.handelMatches(matches); err != nil {
+		if err := ex.handleMatches(matches); err != nil {
 			return err
 		}
 
-		// Delete the order(s) of the user whrn filled
-		// for _, matchedOrder := range matchedOrders {
-
-		// 	userOrders := ex.Orders[matchedOrder.UserID]
-		// 	for i := 0; i < len(userOrders); i++ {
-		// 		// if the size is 0 we can delete this order
-		// 		if userOrders[i].IsFilled() {
-		// 			fmt.Printf("Deleting !!!!!!!=> %+v\n", userOrders[i])
-		// 			if matchedOrder.ID == userOrders[i].ID {
-		// 				userOrders[i] = userOrders[len(userOrders)-1]
-		// 				userOrders = userOrders[:len(userOrders)-1]
-		// 			}
-		// 		}
-
-		// 	}
-		// }
-
-		//return c.JSON(http.StatusOK, map[string]any{"matches": matchOrders})
-	}
-
-	for j := 0; j < len(ex.Orders); j++ {
-		userOrders := ex.Orders[j]
-		for i := 0; i < len(userOrders); i++ {
-			if userOrders[i].IsFilled() {
-				fmt.Printf("deleting==========>  %+v\n", userOrders[i])
-				userOrders[i] = userOrders[len(userOrders)-1]
-				userOrders = userOrders[:len(userOrders)-1]
-			}
-		}
 	}
 
 	resp := &PlaceOrderResponse{
@@ -410,7 +419,7 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 
 }
 
-func (ex *Exchange) handelMatches(matches []orderbook.Match) error {
+func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
 	for _, match := range matches {
 		fromUser, ok := ex.Users[match.Ask.UserID]
 		if !ok {
