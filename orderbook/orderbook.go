@@ -228,6 +228,8 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 }
 
 // Buy BTC in limit price
+//
+//	#TODO the limit order didn't filled when the price across
 func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 	// 1. check volume is 15k
 	var limit *Limit

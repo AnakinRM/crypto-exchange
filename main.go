@@ -58,6 +58,14 @@ func makeMarketSimple(c *client.Client) {
 
 	for {
 
+		orders, err := c.GetOrders(1)
+		if err != nil {
+			log.Println(err)
+		}
+		fmt.Println("=-----------------------------------")
+		fmt.Printf("%+v\n", orders)
+		fmt.Println("=-----------------------------------")
+
 		bestAsk, err := c.GetBestAskPrice()
 		if err != nil {
 			log.Println(err)
@@ -86,6 +94,7 @@ func makeMarketSimple(c *client.Client) {
 			}
 
 			myBids[bidLimit.Price] = bidOrderResp.OrderID
+
 		}
 
 		if len(myAsks) < 3 {
@@ -151,7 +160,7 @@ func main() {
 
 	go makeMarketSimple(c)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 	marketOrderPlacer(c)
 
 	// limitOrderParams := &client.PlaceOrderParams{

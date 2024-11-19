@@ -57,9 +57,10 @@ type (
 	}
 
 	MatchedOrders struct {
-		Price float64
-		Size  float64
-		ID    int64
+		UserID int64
+		Price  float64
+		Size   float64
+		ID     int64
 	}
 )
 
@@ -104,6 +105,8 @@ func StartServer() {
 
 	e.POST("/order", ex.handlePlaceOrder)
 	e.DELETE("/order/:id", ex.cancelOrder)
+
+	e.GET("/order/:userID", ex.handleGetOrders)
 	e.GET("/book/:market/asks", ex.handleGetBook)
 	e.GET("/book/:market", ex.handleGetBook)
 	e.GET("/book/:market/bestbid", ex.handleGetBestBid)
@@ -135,9 +138,10 @@ func httpErrorHandler(err error, c echo.Context) {
 }
 
 type Exchange struct {
-	Client     *ethclient.Client
-	Users      map[int64]*User
-	orders     map[int64]int64
+	Client *ethclient.Client
+	Users  map[int64]*User
+	//orders maps a user to his order
+	Orders     map[int64][]*orderbook.Order
 	PrivateKey *ecdsa.PrivateKey
 	orderbooks map[Market]*orderbook.Orderbook
 }
@@ -152,10 +156,42 @@ func NewExchange(privateKey string, client *ethclient.Client) (*Exchange, error)
 	return &Exchange{
 		Client:     client,
 		Users:      make(map[int64]*User),
-		orders:     make(map[int64]int64),
+		Orders:     make(map[int64][]*orderbook.Order),
 		PrivateKey: privateKeyECDSA,
 		orderbooks: orderbooks,
 	}, nil
+}
+
+func (ex *Exchange) handleGetOrders(c echo.Context) error {
+	userIDstr := c.Param("userID")
+	userID, err := strconv.Atoi(userIDstr)
+	if err != nil {
+		return err
+	}
+
+	orderbookOrders, ok := ex.Orders[int64(userID)]
+
+	if !ok {
+		return c.JSON(http.StatusNotFound, fmt.Sprintf("userID [%d] order can not be found", userID))
+	}
+
+	orders := make([]Order, len(orderbookOrders))
+
+	for i := 0; i < len(orderbookOrders); i++ {
+		order := Order{
+			UserID: orderbookOrders[i].UserID,
+			ID:     orderbookOrders[i].ID,
+			//Price:     orderbookOrders[i].Limit.Price,
+			Size:      orderbookOrders[i].Size,
+			Bid:       orderbookOrders[i].Bid,
+			Timestamp: orderbookOrders[i].Timestamp,
+		}
+		orders[i] = order
+	}
+
+	fmt.Printf("%+v", orders)
+
+	return c.JSON(http.StatusOK, orders)
 }
 
 func (ex *Exchange) handleGetBook(c echo.Context) error {
@@ -269,14 +305,18 @@ func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order
 	totalSizeFilled := 0.0
 	sumPrice := 0.0
 	for i := 0; i < len(matchOrders); i++ {
+		limitUserID := matches[i].Bid.UserID
+
 		id := matches[i].Bid.ID
 		if isBid {
+			limitUserID = matches[i].Ask.UserID
 			id = matches[i].Ask.ID
 		}
 		matchOrders[i] = &MatchedOrders{
-			Size:  matches[i].SizeFilled,
-			Price: matches[i].Price,
-			ID:    id,
+			UserID: limitUserID,
+			Size:   matches[i].SizeFilled,
+			Price:  matches[i].Price,
+			ID:     id,
 		}
 
 		totalSizeFilled += matches[i].SizeFilled
@@ -293,6 +333,8 @@ func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order
 func (ex *Exchange) handlePlaceLimitOrder(market Market, price float64, order *orderbook.Order) error {
 	ob := ex.orderbooks[market]
 	ob.PlaceLimitOrder(price, order)
+
+	ex.Orders[order.UserID] = append(ex.Orders[order.UserID], order)
 
 	log.Printf("new LIMIT order => type:[%t] | price [%2.f] | size [%.2f]", order.Bid, order.Limit.Price, order.Size)
 
@@ -330,8 +372,37 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 			return err
 		}
 
+		// Delete the order(s) of the user whrn filled
+		// for _, matchedOrder := range matchedOrders {
+
+		// 	userOrders := ex.Orders[matchedOrder.UserID]
+		// 	for i := 0; i < len(userOrders); i++ {
+		// 		// if the size is 0 we can delete this order
+		// 		if userOrders[i].IsFilled() {
+		// 			fmt.Printf("Deleting !!!!!!!=> %+v\n", userOrders[i])
+		// 			if matchedOrder.ID == userOrders[i].ID {
+		// 				userOrders[i] = userOrders[len(userOrders)-1]
+		// 				userOrders = userOrders[:len(userOrders)-1]
+		// 			}
+		// 		}
+
+		// 	}
+		// }
+
 		//return c.JSON(http.StatusOK, map[string]any{"matches": matchOrders})
 	}
+
+	for j := 0; j < len(ex.Orders); j++ {
+		userOrders := ex.Orders[j]
+		for i := 0; i < len(userOrders); i++ {
+			if userOrders[i].IsFilled() {
+				fmt.Printf("deleting==========>  %+v\n", userOrders[i])
+				userOrders[i] = userOrders[len(userOrders)-1]
+				userOrders = userOrders[:len(userOrders)-1]
+			}
+		}
+	}
+
 	resp := &PlaceOrderResponse{
 		OrderID: order.ID,
 	}
@@ -383,7 +454,7 @@ func transferETH(client *ethclient.Client, fromPrivKey *ecdsa.PrivateKey, to com
 		return err
 	}
 
-	fmt.Println("Tx From:", fromAddress, " To: ", to)
+	//fmt.Println("Tx From:", fromAddress, " To: ", to)
 
 	gasLimit := uint64(21000)
 	gasPrice, err := client.SuggestGasPrice(ctx)
