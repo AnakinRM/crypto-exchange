@@ -63,6 +63,10 @@ type (
 		Size   float64
 		ID     int64
 	}
+
+	APIError struct {
+		Error string
+	}
 )
 
 func StartServer() {
@@ -107,6 +111,7 @@ func StartServer() {
 	e.POST("/order", ex.handlePlaceOrder)
 	e.DELETE("/order/:id", ex.cancelOrder)
 
+	e.GET("/trades/:market", ex.handleGetTrades)
 	e.GET("/order/:userID", ex.handleGetOrders)
 	e.GET("/book/:market/asks", ex.handleGetBook)
 	e.GET("/book/:market", ex.handleGetBook)
@@ -169,6 +174,18 @@ type GetOrdersResponse struct {
 	Bids []Order
 }
 
+func (ex *Exchange) handleGetTrades(c echo.Context) error {
+	market := Market(c.Param("market"))
+
+	ob, ok := ex.orderbooks[market]
+	if !ok {
+		return c.JSON(http.StatusBadRequest, APIError{Error: "orderbook not found"})
+	}
+
+	return c.JSON(http.StatusOK, ob.Trades)
+
+}
+
 func (ex *Exchange) handleGetOrders(c echo.Context) error {
 	userIDstr := c.Param("userID")
 	userID, err := strconv.Atoi(userIDstr)
@@ -182,10 +199,6 @@ func (ex *Exchange) handleGetOrders(c echo.Context) error {
 		Asks: []Order{},
 		Bids: []Order{},
 	}
-
-	// if !ok {
-	// 	return c.JSON(http.StatusNotFound, fmt.Sprintf("userID [%d] order can not be found", userID))
-	// }
 
 	for i := 0; i < len(orderbookOrders); i++ {
 		// It could be that the order is getting filled even though its included in this
