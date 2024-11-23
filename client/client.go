@@ -115,32 +115,32 @@ const (
 
 type bestPriceType string
 
-func (c *Client) getBestPrice(priceType bestPriceType) (float64, error) {
+func (c *Client) getBestPrice(priceType bestPriceType) (*server.Order, error) {
 
 	e := fmt.Sprintf("%s/book/ETH/%s", Endpoint, priceType)
 	req, err := http.NewRequest(http.MethodGet, e, nil)
 	if err != nil {
-		return 0.0, err
+		return nil, err
 	}
 
 	resp, err := c.Do(req)
 	if err != err {
-		return 0.0, err
+		return nil, err
 	}
 
-	priceResp := &server.PriceResponse{}
-	if err := json.NewDecoder(resp.Body).Decode(priceResp); err != nil {
-		return 0.0, err
+	order := &server.Order{}
+	if err := json.NewDecoder(resp.Body).Decode(order); err != nil {
+		return nil, err
 	}
 
-	return priceResp.Price, err
+	return order, err
 }
 
-func (c *Client) GetBestBidPrice() (float64, error) {
+func (c *Client) GetBestBidPrice() (*server.Order, error) {
 	return c.getBestPrice(bestBidPrice)
 }
 
-func (c *Client) GetBestAskPrice() (float64, error) {
+func (c *Client) GetBestAskPrice() (*server.Order, error) {
 	return c.getBestPrice(bestAskPrice)
 }
 

@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 type Trade struct {
@@ -51,6 +53,13 @@ func NewOrder(bid bool, size float64, userID int64) *Order {
 
 func (o *Order) String() string {
 	return fmt.Sprintf("[ID] %+v [UserID]  %+v [size] %.2f [Bid]  %+v[Timestamp] %+v", o.ID, o.UserID, o.Size, o.Bid, o.Timestamp)
+}
+
+func (o *Order) Type() string {
+	if o.Bid {
+		return "BID"
+	}
+	return "ASK"
 }
 
 func (o *Order) IsFilled() bool {
@@ -205,6 +214,9 @@ func NewOrderbook() *Orderbook {
 
 // Buy BTC in the Market price
 func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
+	ob.mu.Lock()
+	defer ob.mu.Unlock()
+
 	matches := []Match{}
 
 	if o.Bid {
@@ -245,6 +257,9 @@ func (ob *Orderbook) PlaceMarketOrder(o *Order) []Match {
 		}
 		ob.Trades = append(ob.Trades, trade)
 	}
+	logrus.WithFields(logrus.Fields{
+		"currentPrice": ob.Trades[len(ob.Trades)-1].Price,
+	}).Info()
 
 	return matches
 }
@@ -276,6 +291,14 @@ func (ob *Orderbook) PlaceLimitOrder(price float64, o *Order) {
 			ob.AskLimits[price] = limit
 		}
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"price":  limit.Price,
+		"type":   o.Type(),
+		"size":   o.Size,
+		"userID": o.UserID,
+	}).Info("new limit order")
+
 	ob.Orders[o.ID] = o
 	limit.AddOrder(o)
 }
@@ -298,6 +321,8 @@ func (ob *Orderbook) clearLimit(bid bool, l *Limit) {
 			}
 		}
 	}
+
+	fmt.Printf("clearing limit price level [%.2f]\n", l.Price)
 }
 
 func (ob *Orderbook) CancelOrder(o *Order) {
