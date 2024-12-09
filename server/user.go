@@ -11,7 +11,7 @@ type User struct {
 	hashedPassWd string
 	Email        string
 	Phone        int64
-	Wallet       map[string]token.Token
+	Wallet       map[token.Market]token.Token
 }
 
 func HashPassword(password string) (string, error) {

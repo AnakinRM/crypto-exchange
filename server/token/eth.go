@@ -10,14 +10,16 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+// Eth represents a specific token type (child class).
+// It embeds BaseToken to reuse the shared logic.
 type Eth struct {
+	BaseToken       // Embedding BaseToken gives Eth all the shared methods
 	name            string
 	privateKey      *ecdsa.PrivateKey
-	PublicKey       string
-	Balance         float64
 	lastAddrBalance float64
 }
 
+// NewToken creates a new instance of Eth with a fresh key pair and address.
 func (e *Eth) NewToken() Token {
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {
@@ -25,7 +27,6 @@ func (e *Eth) NewToken() Token {
 	}
 
 	publicKey := privateKey.Public()
-
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
 		log.Fatal("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
@@ -33,27 +34,16 @@ func (e *Eth) NewToken() Token {
 
 	address := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
 	return &Eth{
+		BaseToken:       BaseToken{PublicKey: address, Balance: 0.0},
 		name:            "Ethereum",
 		privateKey:      privateKey,
-		PublicKey:       address,
-		Balance:         0.0,
 		lastAddrBalance: 0.0,
 	}
 }
 
-func (e *Eth) GetPublicKey() (string, error) {
-	if e.PublicKey == "" {
-		return "", fmt.Errorf("public key not found")
-	}
-	return e.PublicKey, nil
-}
-
-func (e *Eth) CheckBalance(c cryptoClient.Client) (float64, error) {
-	return e.Balance, nil
-}
-
+// CheckDeposit checks if there has been a deposit to the ETH address.
+// This logic is specific to Eth, so it's implemented here.
 func (e *Eth) CheckDeposit(c cryptoClient.Client) (bool, error) {
-	// Placeholder implementation
 	walletBalance, err := c.Eth.GetBalance(e.PublicKey)
 	if err != nil {
 		return false, err
@@ -63,13 +53,12 @@ func (e *Eth) CheckDeposit(c cryptoClient.Client) (bool, error) {
 		e.lastAddrBalance = walletBalance
 		return true, nil
 	}
-
 	return false, nil
 }
 
+// Withdraw attempts to withdraw a specified amount to a given address.
+// This logic is specific to Eth, so it's implemented here.
 func (e *Eth) Withdraw(c cryptoClient.Client, addr string, amount float64) (float64, error) {
-	// Placeholder implementation
-
 	if e.Balance < amount {
 		return amount, fmt.Errorf("Insufficient balance")
 	}
@@ -80,19 +69,28 @@ func (e *Eth) Withdraw(c cryptoClient.Client, addr string, amount float64) (floa
 	}
 
 	if walletBalance < amount {
-		//will faile because of the gas fee
-		c.Eth.TransferETH(e.privateKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(walletBalance))
+		// This may fail due to gas fees
+		err := c.Eth.TransferETH(e.privateKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(walletBalance))
+		if err != nil {
+			return amount, err
+		}
 		e.lastAddrBalance = 0.0
 		amount -= walletBalance
 		return amount, fmt.Errorf("Insufficient wallet balance")
 	}
 
-	c.Eth.TransferETH(e.privateKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(amount))
+	err = c.Eth.TransferETH(e.privateKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(amount))
+	if err != nil {
+		return amount, err
+	}
+	// Update local balance after successful transfer
+	e.Balance -= amount
 	return 0.0, nil
 }
 
+// SendToExchange sends all available balance to the specified exchange address.
+// This logic is specific to Eth, so it's implemented here.
 func (e *Eth) SendToExchange(c cryptoClient.Client, addr string) (bool, error) {
-	// Placeholder implementation
 	walletBalance, err := c.Eth.GetBalance(e.PublicKey)
 	if err != nil {
 		return false, err
@@ -103,5 +101,6 @@ func (e *Eth) SendToExchange(c cryptoClient.Client, addr string) (bool, error) {
 		return false, err
 	}
 	e.lastAddrBalance = 0.0
+	e.Balance = 0.0 // update local balance after sending all funds
 	return true, nil
 }

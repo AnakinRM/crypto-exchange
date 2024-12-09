@@ -8,6 +8,7 @@ import (
 
 	"github.com/anakinrm/crypto-exchange/orderbook"
 	"github.com/anakinrm/crypto-exchange/server"
+	"github.com/anakinrm/crypto-exchange/server/token"
 )
 
 const Endpoint = "http://localhost:3000"
@@ -80,7 +81,7 @@ func (c *Client) PlaceMarketOrder(p *PlaceOrderParams) (*server.PlaceOrderRespon
 		Type:   server.MarketOrder,
 		Bid:    p.Bid,
 		Size:   p.Size,
-		Market: server.MarketETH,
+		Market: token.MarketETH,
 	}
 
 	body, err := json.Marshal(params)
@@ -166,7 +167,7 @@ func (c *Client) PlaceLimitOrder(p *PlaceOrderParams) (*server.PlaceOrderRespons
 		Bid:    p.Bid,
 		Size:   p.Size,
 		Price:  p.Price,
-		Market: server.MarketETH,
+		Market: token.MarketETH,
 	}
 
 	body, err := json.Marshal(params)

@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/big"
 	"net/http"
+
 	"strconv"
 	"sync"
 
 	"github.com/anakinrm/crypto-exchange/orderbook"
+	"github.com/anakinrm/crypto-exchange/server/token"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
@@ -22,12 +23,12 @@ type Exchange struct {
 	//orders maps a user to his order
 	Orders     map[int64][]*orderbook.Order
 	PrivateKey *ecdsa.PrivateKey
-	orderbooks map[Market]*orderbook.Orderbook
+	orderbooks map[token.Market]*orderbook.Orderbook
 }
 
 func NewExchange(privateKey string) (*Exchange, error) {
-	orderbooks := make(map[Market]*orderbook.Orderbook)
-	orderbooks[MarketETH] = orderbook.NewOrderbook()
+	orderbooks := make(map[token.Market]*orderbook.Orderbook)
+	orderbooks[token.MarketETH] = orderbook.NewOrderbook()
 	privateKeyECDSA, err := crypto.HexToECDSA(privateKey)
 	if err != nil {
 		return nil, err
@@ -55,7 +56,7 @@ func (ex *Exchange) registerUser(pk string, userId int64) {
 }
 
 func (ex *Exchange) handleGetTrades(c echo.Context) error {
-	market := Market(c.Param("market"))
+	market := token.Market(c.Param("market"))
 
 	ob, ok := ex.orderbooks[market]
 	if !ok {
@@ -107,7 +108,7 @@ func (ex *Exchange) handleGetOrders(c echo.Context) error {
 }
 
 func (ex *Exchange) handleGetBook(c echo.Context) error {
-	market := Market(c.Param("market"))
+	market := token.Market(c.Param("market"))
 	ob, ok := ex.orderbooks[market]
 
 	if !ok {
@@ -159,7 +160,7 @@ type PriceResponse struct {
 
 func (ex *Exchange) handleGetBestBid(c echo.Context) error {
 	var (
-		market = Market(c.Param("market"))
+		market = token.Market(c.Param("market"))
 		ob     = ex.orderbooks[market]
 		order  = Order{}
 	)
@@ -178,7 +179,7 @@ func (ex *Exchange) handleGetBestBid(c echo.Context) error {
 
 func (ex *Exchange) handleGetBestAsk(c echo.Context) error {
 	var (
-		market = Market(c.Param("market"))
+		market = token.Market(c.Param("market"))
 		ob     = ex.orderbooks[market]
 		order  = Order{}
 	)
@@ -198,7 +199,7 @@ func (ex *Exchange) cancelOrder(c echo.Context) error {
 	idStr := c.Param("id")
 	id, _ := strconv.Atoi(idStr)
 
-	ob := ex.orderbooks[MarketETH]
+	ob := ex.orderbooks[token.MarketETH]
 	order, ok := ob.Orders[int64(id)]
 	if !ok {
 		return c.JSON(http.StatusBadRequest, map[string]any{"msg": "can't find order ID: " + idStr})
@@ -211,7 +212,7 @@ func (ex *Exchange) cancelOrder(c echo.Context) error {
 
 }
 
-func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order) ([]orderbook.Match, []*MatchedOrders) {
+func (ex *Exchange) handlePlaceMarketOrder(market token.Market, order *orderbook.Order) ([]orderbook.Match, []*MatchedOrders) {
 	ob := ex.orderbooks[market]
 	matches := ob.PlaceMarketOrder(order)
 	matchOrders := make([]*MatchedOrders, len(matches))
@@ -269,7 +270,7 @@ func (ex *Exchange) handlePlaceMarketOrder(market Market, order *orderbook.Order
 	return matches, matchOrders
 }
 
-func (ex *Exchange) handlePlaceLimitOrder(market Market, price float64, order *orderbook.Order) error {
+func (ex *Exchange) handlePlaceLimitOrder(market token.Market, price float64, order *orderbook.Order) error {
 	ob := ex.orderbooks[market]
 	ob.PlaceLimitOrder(price, order)
 
@@ -295,7 +296,7 @@ func (ex *Exchange) handlePlaceOrder(c echo.Context) error {
 		return err
 	}
 
-	market := Market(placeOrderData.Market)
+	market := token.Market(placeOrderData.Market)
 	order := orderbook.NewOrder(placeOrderData.Bid, placeOrderData.Size, placeOrderData.UserID)
 
 	//limit orders
@@ -330,21 +331,16 @@ func (ex *Exchange) handleMatches(matches []orderbook.Match) error {
 			return fmt.Errorf("user not found: %d", match.Ask.UserID)
 		}
 
+		err := fromUser.Wallet[token.MarketETH].SubBalance(match.SizeFilled)
+		if err != nil {
+			return fmt.Errorf("From user insufficient balance")
+		}
+
 		toUser, ok := ex.Users[match.Bid.UserID]
 		if !ok {
 			return fmt.Errorf("user not found: %d", match.Bid.UserID)
 		}
-		toAddress := crypto.PubkeyToAddress(toUser.PrivateKey.PublicKey)
-
-		//this is only use for the fees
-		// exchangePubKey := ex.PrivateKey.Public()
-		// publicKeyECDSA, ok := exchangePubKey.(*ecdsa.PublicKey)
-		// if !ok {
-		// 	return fmt.Errorf("cannot assert type: publicKey is not of type *ecdsa.PublicKey")
-		// }
-
-		amount := big.NewInt(int64(match.SizeFilled))
-		//transferETH(ex.Client, fromUser.PrivateKey, toAddress, amount)
+		err = toUser.Wallet[token.MarketETH].AddBalance(match.SizeFilled)
 
 	}
 	return nil

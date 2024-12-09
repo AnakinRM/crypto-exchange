@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/anakinrm/crypto-exchange/server/token"
+
 	"github.com/labstack/echo/v4"
 )
 
 const (
-	MarketETH Market = "ETH"
-
 	MarketOrder OrderType = "MARKET"
 	LimitOrder  OrderType = "LIMIT"
 
@@ -17,7 +17,6 @@ const (
 )
 
 type (
-	Market    string
 	OrderType string
 
 	PlaceOrderRequest struct {
@@ -26,7 +25,7 @@ type (
 		Bid    bool
 		Size   float64
 		Price  float64
-		Market Market
+		Market token.Market
 	}
 
 	Order struct {
@@ -66,9 +65,9 @@ func StartServer() {
 		log.Fatal(err)
 	}
 
-	ex.registerUser("f9065c72318979b6a164ed215bffbceec4d5f90e752d3c8d1192c0475bc473f6", 7)
-	ex.registerUser("d2fa31763861778a3e19f29da5127539f96908d0406f75d69bd1cc32934b2934", 8)
-	ex.registerUser("5e8f0213af74ba333b924a0d1db3a7c295e0918ccd06c8d89c1cb9046cca3be4", 666)
+	// ex.registerUser("f9065c72318979b6a164ed215bffbceec4d5f90e752d3c8d1192c0475bc473f6", 7)
+	// ex.registerUser("d2fa31763861778a3e19f29da5127539f96908d0406f75d69bd1cc32934b2934", 8)
+	// ex.registerUser("5e8f0213af74ba333b924a0d1db3a7c295e0918ccd06c8d89c1cb9046cca3be4", 666)
 
 	e.POST("/order", ex.handlePlaceOrder)
 	e.DELETE("/order/:id", ex.cancelOrder)
