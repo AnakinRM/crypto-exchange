@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/anakinrm/crypto-exchange/server/db"
 	"github.com/anakinrm/crypto-exchange/server/token"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -44,4 +45,58 @@ func NewUser(id int64, userName, passWd, email string, phone int64) *User {
 		Phone:        phone,
 		Wallet:       wallet,
 	}
+}
+
+func GetUserbyID(id int64) (*User, error) {
+	user := User{
+		ID: id,
+	}
+	err := user.GetUserFromDataBase()
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (user *User) StoreUserInDataBase() error {
+	userDB := db.User{
+		ID:       user.ID,
+		UserName: user.UserName,
+		PassWD:   user.hashedPassWd,
+		Email:    user.Email,
+		Phone:    user.Phone,
+	}
+	err := userDB.InsertUser()
+	if err != nil {
+		return err
+	}
+
+	for _, v := range user.Wallet {
+		err = v.StoreTokenToDataBase(user.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (user *User) GetUserFromDataBase() error {
+	getUser := db.User{
+		ID: user.ID,
+	}
+	err := getUser.GetUserByID()
+	if err != nil {
+		return err
+	}
+	user.hashedPassWd = getUser.PassWD
+	user.Email = getUser.Email
+	user.Phone = getUser.Phone
+	user.UserName = getUser.UserName
+	user.Wallet, err = token.GetWalletFromDataBase(user.ID)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

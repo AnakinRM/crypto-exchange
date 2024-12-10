@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/anakinrm/crypto-exchange/server/cryptoClient"
+	"github.com/anakinrm/crypto-exchange/server/db"
 )
 
 const (
@@ -31,14 +32,39 @@ type Token interface {
 	SendToExchange(cryptoClient.Client, string) (bool, error)
 	AddBalance(float64) error
 	SubBalance(float64) error
+	StoreTokenToDataBase(int64) error
+	GetTokenFromDataBase(db.Wallet) (Token, error)
 }
 
 // BaseToken provides common fields and methods for tokens.
 // This acts like the "parent" part, providing shared logic.
 // All operations that are the same for all tokens are implemented here.
 type BaseToken struct {
-	PublicKey string
-	Balance   float64
+	PublicKey       string
+	Balance         float64
+	privateKey      string
+	name            Market
+	lastAddrBalance float64
+}
+
+func (b *BaseToken) StoreTokenToDataBase(userID int64) error {
+
+	w := db.Wallet{
+		UserID:          userID,
+		TokenType:       string(b.name),
+		PublicKey:       b.PublicKey,
+		Balance:         b.Balance,
+		LastAddrBalance: b.lastAddrBalance,
+	}
+	err := w.SetEncryptPrivateKey(b.privateKey)
+	if err != nil {
+		return err
+	}
+	err = w.InsertWallet()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetPublicKey returns the public key of the token.
@@ -83,5 +109,35 @@ func GenerateWallet() (map[Market]Token, error) {
 		// Call NewToken to generate a new instance of each token
 		wallet[name] = token.NewToken()
 	}
+	return wallet, nil
+}
+
+// store the tokens in the wallet into database
+func StoreWalletInDataBase(wallet map[Market]Token, userID int64) error {
+	for _, v := range wallet {
+		err := v.StoreTokenToDataBase(userID)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func GetWalletFromDataBase(userID int64) (map[Market]Token, error) {
+	walletDB, err := db.GetWalletsByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	wallet := make(map[Market]Token)
+
+	for _, v := range walletDB {
+
+		wallet[Market(v.TokenType)], err = tokenRegistry[Market(v.TokenType)].GetTokenFromDataBase(v)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return wallet, nil
 }

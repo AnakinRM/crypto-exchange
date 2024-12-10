@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/anakinrm/crypto-exchange/server/cryptoClient"
+	"github.com/anakinrm/crypto-exchange/server/db"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -13,10 +14,8 @@ import (
 // Eth represents a specific token type (child class).
 // It embeds BaseToken to reuse the shared logic.
 type Eth struct {
-	BaseToken       // Embedding BaseToken gives Eth all the shared methods
-	name            string
-	privateKey      *ecdsa.PrivateKey
-	lastAddrBalance float64
+	BaseToken // Embedding BaseToken gives Eth all the shared methods
+
 }
 
 // NewToken creates a new instance of Eth with a fresh key pair and address.
@@ -34,10 +33,13 @@ func (e *Eth) NewToken() Token {
 
 	address := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
 	return &Eth{
-		BaseToken:       BaseToken{PublicKey: address, Balance: 0.0},
-		name:            "Ethereum",
-		privateKey:      privateKey,
-		lastAddrBalance: 0.0,
+		BaseToken: BaseToken{
+			PublicKey:       address,
+			Balance:         0.0,
+			privateKey:      string(crypto.FromECDSA(privateKey)),
+			name:            MarketETH,
+			lastAddrBalance: 0.0,
+		},
 	}
 }
 
@@ -59,6 +61,11 @@ func (e *Eth) CheckDeposit(c cryptoClient.Client) (bool, error) {
 // Withdraw attempts to withdraw a specified amount to a given address.
 // This logic is specific to Eth, so it's implemented here.
 func (e *Eth) Withdraw(c cryptoClient.Client, addr string, amount float64) (float64, error) {
+	privKey, err := crypto.HexToECDSA(e.privateKey)
+	if err != nil {
+		return 0.0, err
+	}
+
 	if e.Balance < amount {
 		return amount, fmt.Errorf("Insufficient balance")
 	}
@@ -69,8 +76,9 @@ func (e *Eth) Withdraw(c cryptoClient.Client, addr string, amount float64) (floa
 	}
 
 	if walletBalance < amount {
+
 		// This may fail due to gas fees
-		err := c.Eth.TransferETH(e.privateKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(walletBalance))
+		err = c.Eth.TransferETH(privKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(walletBalance))
 		if err != nil {
 			return amount, err
 		}
@@ -79,7 +87,7 @@ func (e *Eth) Withdraw(c cryptoClient.Client, addr string, amount float64) (floa
 		return amount, fmt.Errorf("Insufficient wallet balance")
 	}
 
-	err = c.Eth.TransferETH(e.privateKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(amount))
+	err = c.Eth.TransferETH(privKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(amount))
 	if err != nil {
 		return amount, err
 	}
@@ -96,11 +104,35 @@ func (e *Eth) SendToExchange(c cryptoClient.Client, addr string) (bool, error) {
 		return false, err
 	}
 
-	err = c.Eth.TransferETH(e.privateKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(walletBalance))
+	privKey, err := crypto.HexToECDSA(e.privateKey)
+	if err != nil {
+		return false, err
+	}
+
+	err = c.Eth.TransferETH(privKey, common.HexToAddress(addr), c.Eth.FloatToBigInt(walletBalance))
 	if err != nil {
 		return false, err
 	}
 	e.lastAddrBalance = 0.0
 	e.Balance = 0.0 // update local balance after sending all funds
 	return true, nil
+}
+
+func (e *Eth) GetTokenFromDataBase(wallet db.Wallet) (Token, error) {
+
+	privKey, err := wallet.GetDecryptPrivateKey()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Eth{
+		BaseToken: BaseToken{
+			PublicKey:       wallet.PublicKey,
+			Balance:         wallet.Balance,
+			privateKey:      privKey,
+			name:            MarketETH,
+			lastAddrBalance: wallet.LastAddrBalance,
+		},
+	}, nil
+
 }

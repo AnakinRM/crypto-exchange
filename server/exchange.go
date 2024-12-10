@@ -46,12 +46,12 @@ type GetOrdersResponse struct {
 	Bids []Order
 }
 
-func (ex *Exchange) registerUser(pk string, userId int64) {
-	user := NewUser(pk, userId)
-	ex.Users[userId] = user
+func (ex *Exchange) registerUser(id int64, userName, passWd, email string, phone int64) {
+	user := NewUser(id, userName, passWd, email, phone)
+	ex.Users[id] = user
 
 	logrus.WithFields(logrus.Fields{
-		"id": userId,
+		"id": id,
 	}).Info("new exchange user")
 }
 
